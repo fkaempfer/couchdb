@@ -12,7 +12,7 @@
 
 -module(fabric_db_meta).
 
--export([set_revs_limit/3, set_security/3, get_all_security/2]).
+-export([set_revs_limit/3, set_security/3, get_all_security/2, compact/2]).
 
 -include_lib("fabric/include/fabric.hrl").
 -include_lib("mem3/include/mem3.hrl").
@@ -172,3 +172,30 @@ maybe_finish_get(#acc{workers=[]}=Acc) ->
     {stop, Acc};
 maybe_finish_get(Acc) ->
     {ok, Acc}.
+
+
+compact(DbName,Options) ->
+    Shards = mem3:shards(DbName),
+    Workers = fabric_util:submit_jobs(Shards, compact, Options),
+    Handler = fun handle_ok_message/3,
+    Acc0 = {Workers, length(Workers) - 1},
+    Response = fabric_util:recv(Workers, #shard.ref, Handler, Acc0),
+    case Response of
+    {ok, _} ->
+
+        ok;
+    {timeout, {DefunctWorkers, _}} ->
+        fabric_util:log_timeout(DefunctWorkers, "compact"),
+        {error, timeout};
+    Error ->
+        Error
+    end.
+
+    
+
+handle_ok_message({ok,_}, _, {_Workers, 0}) ->
+    {stop, ok};
+handle_ok_message({ok,_}, Worker, {Workers, Waiting}) ->
+    {ok, {lists:delete(Worker, Workers), Waiting - 1}};
+handle_ok_message(Error, _, _Acc) ->
+    {error, Error}.

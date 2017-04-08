@@ -21,7 +21,7 @@
     delete_db/2, get_db_info/1, get_doc_count/1, set_revs_limit/3,
     set_security/2, set_security/3, get_revs_limit/1, get_security/1,
     get_security/2, get_all_security/1, get_all_security/2,
-    compact/1, compact/2]).
+    compact/2, compact/3]).
 
 % Documents
 -export([open_doc/3, open_revs/4, get_doc_info/3, get_full_doc_info/3,
@@ -33,8 +33,8 @@
     query_view/6, get_view_group_info/2, end_changes/0]).
 
 % miscellany
--export([design_docs/1, reset_validation_funs/1, cleanup_index_files/0,
-    cleanup_index_files/1, cleanup_index_files_all_nodes/1, dbname/1]).
+-export([design_docs/1, reset_validation_funs/1, 
+    cleanup_index_files_all_nodes/2, dbname/1]).
 
 -include_lib("fabric/include/fabric.hrl").
 
@@ -162,15 +162,13 @@ get_all_security(DbName) ->
 get_all_security(DbName, Options) ->
     fabric_db_meta:get_all_security(dbname(DbName), opts(Options)).
 
-compact(DbName) ->
-    [rexi:cast(Node, {fabric_rpc, compact, [Name]}) ||
-        #shard{node=Node, name=Name} <- mem3:shards(dbname(DbName))],
-    ok.
+-spec compact(dbname(), [option()]) -> ok.
+compact(DbName, Options) ->
+   fabric_db_meta:compact(dbname(DbName), [opts(Options)]).
 
-compact(DbName, DesignName) ->
-    [rexi:cast(Node, {fabric_rpc, compact, [Name, DesignName]}) ||
-        #shard{node=Node, name=Name} <- mem3:shards(dbname(DbName))],
-    ok.
+compact(DbName, DesignName, Options) ->
+   fabric_db_meta:compact(dbname(DbName), [DesignName, opts(Options)]).
+    
 
 % doc operations
 
@@ -436,40 +434,12 @@ reset_validation_funs(DbName) ->
     [rexi:cast(Node, {fabric_rpc, reset_validation_funs, [Name]}) ||
         #shard{node=Node, name=Name} <-  mem3:shards(DbName)].
 
-%% @doc clean up index files for all Dbs
--spec cleanup_index_files() -> [ok].
-cleanup_index_files() ->
-    {ok, Dbs} = fabric:all_dbs(),
-    [cleanup_index_files(Db) || Db <- Dbs].
 
-%% @doc clean up index files for a specific db
--spec cleanup_index_files(dbname()) -> ok.
-cleanup_index_files(DbName) ->
-    {ok, DesignDocs} = fabric:design_docs(DbName),
-
-    ActiveSigs = lists:map(fun(#doc{id = GroupId}) ->
-        {ok, Info} = fabric:get_view_group_info(DbName, GroupId),
-        binary_to_list(couch_util:get_value(signature, Info))
-    end, [couch_doc:from_json_obj(DD) || DD <- DesignDocs]),
-
-    FileList = filelib:wildcard([config:get("couchdb", "view_index_dir"),
-        "/.shards/*/", couch_util:to_list(dbname(DbName)), ".[0-9]*_design/mrview/*"]),
-
-    DeleteFiles = if ActiveSigs =:= [] -> FileList; true ->
-        {ok, RegExp} = re:compile([$(, string:join(ActiveSigs, "|"), $)]),
-        lists:filter(fun(FilePath) ->
-            re:run(FilePath, RegExp, [{capture, none}]) == nomatch
-        end, FileList)
-    end,
-    [file:delete(File) || File <- DeleteFiles],
-    ok.
 
 %% @doc clean up index files for a specific db on all nodes
--spec cleanup_index_files_all_nodes(dbname()) -> [reference()].
-cleanup_index_files_all_nodes(DbName) ->
-    lists:foreach(fun(Node) ->
-        rexi:cast(Node, {?MODULE, cleanup_index_files, [DbName]})
-    end, mem3:nodes()).
+-spec cleanup_index_files_all_nodes(dbname(), [option()]) -> [reference()].
+cleanup_index_files_all_nodes(DbName, Options) ->
+    fabric_index_cleanup: cleanup_index_files_all_nodes(dbname(DbName), opts(Options)).
 
 %% some simple type validation and transcoding
 dbname(DbName) when is_list(DbName) ->

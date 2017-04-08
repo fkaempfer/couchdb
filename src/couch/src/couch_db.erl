@@ -13,7 +13,7 @@
 -module(couch_db).
 
 -export([open/2,open_int/2,close/1,create/2,get_db_info/1,get_design_docs/1]).
--export([start_compact/1, cancel_compact/1]).
+-export([start_compact/1, start_compact/2, cancel_compact/1]).
 -export([wait_for_compaction/1, wait_for_compaction/2]).
 -export([is_idle/1,monitor/1,count_changes_since/2]).
 -export([update_doc/3,update_doc/4,update_docs/4,update_docs/2,update_docs/3,delete_doc/3]).
@@ -146,10 +146,27 @@ monitored_by(Db) ->
 monitor(#db{main_pid=MainPid}) ->
     erlang:monitor(process, MainPid).
 
-start_compact(#db{main_pid=Pid}) ->
+
+
+start_compact(#db{main_pid=Pid} = Db) ->
+    check_is_admin(Db),
     gen_server:call(Pid, start_compact).
 
-cancel_compact(#db{main_pid=Pid}) ->
+start_compact(Db, DesignName) ->
+    check_is_admin(Db),
+    {ok, Pid} = couch_index_server:get_index(
+        couch_mrview_index, Db, <<"_design/", DesignName/binary>>),
+    gen_server:call(Pid, compact).
+    %Ref = erlang:make_ref(),
+    %Pid ! {'$gen_call', {self(), Ref}, compact}.
+    %gen_server:call(Pid, compact).
+    
+    %Ref = erlang:make_ref(),
+    %Pid ! {'$gen_call', {self(), Ref}, compact},
+    %rexi:reply({ok,true}).
+
+cancel_compact(#db{main_pid=Pid} = Db) ->
+    check_is_admin(Db),
     gen_server:call(Pid, cancel_compact).
 
 wait_for_compaction(Db) ->

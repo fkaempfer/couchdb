@@ -227,28 +227,45 @@ maybe_flush_changes_feed(Acc0, Data, Len) ->
     },
     {ok, Acc}.
 
-handle_compact_req(#httpd{method='POST'}=Req, Db) ->
+
+handle_compact_req(#httpd{method='POST',user_ctx=Ctx}=Req, Db) ->
     chttpd:validate_ctype(Req, "application/json"),
+    Options = [{user_ctx,Ctx}],
     case Req#httpd.path_parts of
         [_DbName, <<"_compact">>] ->
-            ok = fabric:compact(Db),
-            send_json(Req, 202, {[{ok, true}]});
+            case fabric:compact(Db, Options) of
+                ok ->
+                    send_json(Req, 202, {[{ok, true}]});
+                {error, Reason} ->
+                    throw(Reason)
+            end;
         [DbName, <<"_compact">>, DesignName | _] ->
             case ddoc_cache:open(DbName, <<"_design/", DesignName/binary>>) of
                 {ok, _DDoc} ->
-                    ok = fabric:compact(Db, DesignName),
-                    send_json(Req, 202, {[{ok, true}]});
-                Error ->
-                    throw(Error)
+                    case fabric:compact(Db, DesignName, Options) of
+                        ok ->
+                            send_json(Req, 202, {[{ok, true}]});
+                        {error, Reason} ->
+                            throw(Reason)
+                    end;
+                {error, Reason} ->
+                    throw(Reason)
             end
     end;
 
 handle_compact_req(Req, _Db) ->
     send_method_not_allowed(Req, "POST").
 
-handle_view_cleanup_req(Req, Db) ->
-    ok = fabric:cleanup_index_files_all_nodes(Db),
-    send_json(Req, 202, {[{ok, true}]}).
+handle_view_cleanup_req(#httpd{method='POST',user_ctx=Ctx}=Req, Db) ->
+    chttpd:validate_ctype(Req, "application/json"),
+    Options = [{user_ctx,Ctx}],
+    Response = fabric:cleanup_index_files_all_nodes(Db, Options),
+    case Response of
+        ok ->
+            send_json(Req, 202, {[{ok, true}]});
+        {error, Reason} ->
+            throw (Reason)
+    end.
 
 handle_design_req(#httpd{
         path_parts=[_DbName, _Design, Name, <<"_",_/binary>> = Action | _Rest]

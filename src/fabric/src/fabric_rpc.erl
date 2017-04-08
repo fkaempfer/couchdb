@@ -19,7 +19,7 @@
 -export([create_db/1, delete_db/1, reset_validation_funs/1, set_security/3,
     set_revs_limit/3, create_shard_db_doc/2, delete_shard_db_doc/2]).
 -export([get_all_security/2, open_shard/2]).
--export([compact/1, compact/2]).
+-export([compact/2, compact/3]).
 
 -export([get_db_info/2, get_doc_count/2, get_update_seq/2,
          changes/4, map_view/5, reduce_view/5, group_info/3, update_mrview/4]).
@@ -263,14 +263,16 @@ open_shard(Name, Opts) ->
         couch_stats:increment_counter([fabric, open_shard, timeouts])
     end.
 
-compact(DbName) ->
-    with_db(DbName, [], {couch_db, start_compact, []}).
+compact(DbName, Options) ->
+    with_db(DbName, Options, {couch_db, start_compact, []}).
 
-compact(ShardName, DesignName) ->
-    {ok, Pid} = couch_index_server:get_index(
-        couch_mrview_index, ShardName, <<"_design/", DesignName/binary>>),
-    Ref = erlang:make_ref(),
-    Pid ! {'$gen_call', {self(), Ref}, compact}.
+compact(ShardName, DesignName, Options) ->
+    with_db(ShardName, Options, {couch_db, start_compact, [DesignName]}).
+    % {ok, Pid} = couch_index_server:get_index(
+    %    couch_mrview_index, ShardName, <<"_design/", DesignName/binary>>),
+    % Ref = erlang:make_ref(),
+    % Pid ! {'$gen_call', {self(), Ref}, compact},
+    % rexi:reply({ok,true}).
 
 %%
 %% internal
